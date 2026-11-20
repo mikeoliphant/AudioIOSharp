@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Real-time, allocation-free audio I/O: audio drivers (ASIO, JACK, an internal clock) behind one interface, with a
+    callback per block on the driver's audio thread.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>AudioIOSharp</RootNamespace>
+  </PropertyGroup>
+
+  <!-- JACK through JackSharpCore (the Dependencies/JackSharpCore submodule): Windows, Linux (including PipeWire) and
+       macOS. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Dependencies\JackSharpCore\JackSharp\JackSharp.csproj" />
+  </ItemGroup>
+
+  <!-- ASIO through NAudio's AsioDevice (duplex, one callback per buffer). Windows only at run time. -->
+  <ItemGroup>
+    <PackageReference Include="NAudio.Asio" Version="3.3.0" />
+  </ItemGroup>
+
+</Project>
