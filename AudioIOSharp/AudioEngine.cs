@@ -102,7 +102,7 @@ public class AudioEngine : IDisposable
 
     public AudioDriver Driver(string name) =>
         drivers.FirstOrDefault(d => string.Equals(d.DriverName, name, StringComparison.OrdinalIgnoreCase))
-        ?? throw new AudioException(AudioErrorKind.NotFound, $"There's no audio driver '{name}'. The drivers are: {string.Join(", ", drivers.Select(d => d.DriverName))}.");
+        ?? throw new AudioException(AudioErrorKind.InvalidValue, $"There's no audio driver '{name}'. The drivers are: {string.Join(", ", drivers.Select(d => d.DriverName))}.");
 
     /// <summary>The client running on the device, if any.</summary>
     public IAudioClient? Client => client;

@@ -172,10 +172,10 @@ public class AudioEngineTests
     }
 
     [Fact]
-    public void AnUnknownDriverIsNotFound()
+    public void AnUnknownDriverIsAnInvalidValue()
     {
         using var engine = new AudioEngine(new AudioConfig());
         var ex = Assert.Throws<AudioException>(() => engine.Driver("Nope"));
-        Assert.Equal(AudioErrorKind.NotFound, ex.Kind);
+        Assert.Equal(AudioErrorKind.InvalidValue, ex.Kind);
     }
 }
