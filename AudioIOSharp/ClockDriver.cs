@@ -1,14 +1,13 @@
 using System.Diagnostics;
 
-namespace SpiceForgeServer.Audio;
+namespace AudioIOSharp;
 
 /// <summary>
-/// No audio device: a thread that is the clock (WebSocketApi.md, Simulation, "Without an audio device"). It calls the
-/// client for a block whenever the wall clock says one is due, with no input or output channels, so a simulation runs
-/// in real time from expressions and only drives the meters and the scope. It's the default, and what a simulation
-/// falls back to when its device can't be opened or fails.
+/// No audio device: a thread that is the clock. It calls the client for a block whenever the wall clock says one is
+/// due, with no input or output channels, so the client runs in real time without a device. It's the default, and what
+/// a client falls back to when its device can't be opened or fails.
 /// </summary>
-public sealed class ClockDriver : AudioDriver
+public class ClockDriver : AudioDriver
 {
     public const string Name = "None";
     public const string DeviceName = "Internal clock";
@@ -36,11 +35,10 @@ public sealed class ClockDriver : AudioDriver
         return Task.FromResult<AudioStream>(new ClockStream(rate, size, client));
     }
 
-    private sealed class ClockStream : AudioStream
+    private class ClockStream : AudioStream
     {
         private readonly IAudioClient client;
         private readonly Thread thread;
-        private readonly AudioBlock block;
         private volatile bool stopping;
 
         public ClockStream(int sampleRate, int bufferSize, IAudioClient client)
@@ -48,7 +46,6 @@ public sealed class ClockDriver : AudioDriver
             this.client = client;
             BufferSize = bufferSize;
             Format = new AudioFormat(sampleRate, bufferSize, Array.Empty<string>(), Array.Empty<string>());
-            block = AudioBlock.For(Format);
             client.Prepare(Format);
             thread = new Thread(Run) { IsBackground = true, Name = "Audio clock", Priority = ThreadPriority.AboveNormal };
             thread.Start();
@@ -80,17 +77,16 @@ public sealed class ClockDriver : AudioDriver
                     Thread.Sleep(1);
                     continue;
                 }
-                block.Skipped = 0;
+                long skipped = 0;
                 if (due - sample > rate / 4)
                 {
                     // More than a quarter second behind: skip ahead rather than spiral, and say so.
                     long ahead = (long)due - frames;
-                    block.Skipped = ahead - sample;
+                    skipped = ahead - sample;
                     sample = ahead;
                 }
-                block.Frames = frames;
-                block.Xruns = 0;
-                client.Process(block);
+                var buffers = new AudioBuffers(default, default, frames, skipped);
+                client.Process(in buffers);
                 sample += frames;
             }
         }

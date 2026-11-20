@@ -9,6 +9,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>AudioIOSharp</RootNamespace>
+    <!-- AudioBuffers points at channel memory (native or pinned) -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <!-- JACK through JackSharpCore (the Dependencies/JackSharpCore submodule): Windows, Linux (including PipeWire) and

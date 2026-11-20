@@ -2,9 +2,8 @@ using System.Diagnostics;
 using System.Runtime.Versioning;
 using NAudio.Wave;
 using NAudio.Wave.Asio;
-using SpiceForgeServer.Protocol;
 
-namespace SpiceForgeServer.Audio;
+namespace AudioIOSharp;
 
 /// <summary>
 /// ASIO devices, through NAudio's <see cref="AsioDevice"/> in duplex mode: one callback per buffer reads the inputs and
@@ -13,7 +12,7 @@ namespace SpiceForgeServer.Audio;
 /// and loading a second driver while one runs can disturb both.
 /// </summary>
 [SupportedOSPlatform("windows")]
-public sealed class AsioDriver : AudioDriver, IDisposable
+public class AsioDriver : AudioDriver, IDisposable
 {
     public const string Name = "ASIO";
 
@@ -34,7 +33,7 @@ public sealed class AsioDriver : AudioDriver, IDisposable
     {
         if (open != null)
             return SameName(open.Device, device) ? open.Info
-                : throw new ApiException(ErrorCodes.AudioBusy, $"The ASIO device '{open.Device}' is open; close it to look at another.");
+                : throw new AudioException(AudioErrorKind.Busy, $"The ASIO device '{open.Device}' is open; close it to look at another.");
         using AsioDevice d = OpenDevice(device);
         return InfoOf(d, device);
     });
@@ -43,9 +42,9 @@ public sealed class AsioDriver : AudioDriver, IDisposable
     {
         ArgumentNullException.ThrowIfNull(client);
         if (open != null)
-            throw new ApiException(ErrorCodes.AudioBusy, $"The ASIO device '{open.Device}' is already open.");
+            throw new AudioException(AudioErrorKind.Busy, $"The ASIO device '{open.Device}' is already open.");
         string name = config.Device ?? AsioDevice.GetDriverNames().FirstOrDefault()
-            ?? throw new ApiException(ErrorCodes.AudioUnavailable, "There are no ASIO drivers installed.");
+            ?? throw new AudioException(AudioErrorKind.Unavailable, "There are no ASIO drivers installed.");
         AsioDevice device = OpenDevice(name);
         try
         {
@@ -67,7 +66,7 @@ public sealed class AsioDriver : AudioDriver, IDisposable
         if (open != null)
         {
             if (!SameName(open.Device, device))
-                throw new ApiException(ErrorCodes.AudioBusy, $"The ASIO device '{open.Device}' is open; close it to configure another.");
+                throw new AudioException(AudioErrorKind.Busy, $"The ASIO device '{open.Device}' is open; close it to configure another.");
             open.ShowControlPanel();
             return;
         }
@@ -87,14 +86,14 @@ public sealed class AsioDriver : AudioDriver, IDisposable
     private static AsioDevice OpenDevice(string name)
     {
         if (!AsioDevice.GetDriverNames().Any(n => SameName(n, name)))
-            throw new ApiException(ErrorCodes.NotFound, $"There's no ASIO driver '{name}'.");
+            throw new AudioException(AudioErrorKind.NotFound, $"There's no ASIO driver '{name}'.");
         try
         {
             return AsioDevice.Open(AsioDevice.GetDriverNames().First(n => SameName(n, name)));
         }
         catch (Exception ex)
         {
-            throw new ApiException(ErrorCodes.AudioUnavailable, $"Couldn't open the ASIO driver '{name}': {ex.Message.Trim()}");
+            throw new AudioException(AudioErrorKind.Unavailable, $"Couldn't open the ASIO driver '{name}': {ex.Message.Trim()}");
         }
     }
 
@@ -168,13 +167,13 @@ public sealed class AsioDriver : AudioDriver, IDisposable
         return sizes.ToList();
     }
 
-    private sealed class AsioStream : AudioStream
+    private class AsioStream : AudioStream
     {
         private readonly AsioDriver owner;
         private readonly AsioDevice device;
         private readonly IAudioClient client;
         private readonly string[] inputNames, outputNames;
-        private volatile AudioBlock block = new();
+        private volatile StreamBuffers? buffers;
         private volatile AudioFormat format;
         private long budget;   // Stopwatch ticks a callback may take before it counts as an overrun.
         private int xruns;
@@ -192,7 +191,7 @@ public sealed class AsioDriver : AudioDriver, IDisposable
             inputNames = inputs.Select(i => info.Inputs[i]).ToArray();
             outputNames = outputs.Select(o => info.Outputs[o]).ToArray();
             if (info.Outputs.Count == 0)
-                throw new ApiException(ErrorCodes.AudioUnavailable, $"The ASIO device '{Device}' has no outputs.");
+                throw new AudioException(AudioErrorKind.Unavailable, $"The ASIO device '{Device}' has no outputs.");
             device.InitDuplex(new AsioDuplexOptions
             {
                 InputChannels = inputs.Length > 0 ? inputs : null,
@@ -230,7 +229,7 @@ public sealed class AsioDriver : AudioDriver, IDisposable
         private AudioFormat Prepare()
         {
             var f = new AudioFormat(device.CurrentSampleRate, device.FramesPerBuffer, inputNames, outputNames);
-            block = AudioBlock.For(f);
+            buffers = new StreamBuffers(f);
             budget = (long)(Stopwatch.Frequency * f.MaxFrames / f.SampleRate);
             format = f;
             client.Prepare(f);
@@ -253,7 +252,7 @@ public sealed class AsioDriver : AudioDriver, IDisposable
 
         // A device whose reset failed partway (its hardware unplugged: Reinitialize stopped it, then failed with
         // ASE_NoClock) is left alone rather than disposed: disposing it then corrupted the process's heap and killed
-        // the server. It's kept, never called again, and the driver can be opened afresh.
+        // the process. It's kept, never called again, and the driver can be opened afresh.
         public override Task Close() => owner.worker.Run(() =>
         {
             if (closing)
@@ -278,21 +277,19 @@ public sealed class AsioDriver : AudioDriver, IDisposable
         });
 
         // The audio thread.
-        private void Process(in AsioProcessBuffers buffers)
+        // NAudio's buffers are copied to and from the stream's own (pinned) ones, which the client's spans point at.
+        private void Process(in AsioProcessBuffers device)
         {
-            AudioBlock b = block;
-            int frames = buffers.Frames;
-            if (frames > b.Capacity || b.Inputs.Length != buffers.InputChannelCount)
-                return;   // Not the block Prepare made for this configuration: NAudio leaves the outputs silent.
+            StreamBuffers? b = buffers;
+            int frames = device.Frames;
+            if (b == null || frames > b.Capacity || b.Inputs.Length != device.InputChannelCount)
+                return;   // Not the buffers Prepare made for this configuration: NAudio leaves the outputs silent.
             for (int i = 0; i < b.Inputs.Length; i++)
-                buffers.GetInput(i).CopyTo(b.Inputs[i]);
-            b.Frames = frames;
-            b.Skipped = 0;
-            b.Xruns = Interlocked.Exchange(ref xruns, 0);
+                device.GetInput(i).CopyTo(b.Inputs[i]);
             long began = Stopwatch.GetTimestamp();
             try
             {
-                client.Process(b);
+                client.Process(b.Buffers(frames, xruns: Interlocked.Exchange(ref xruns, 0)));
             }
             catch (Exception)
             {
@@ -302,7 +299,7 @@ public sealed class AsioDriver : AudioDriver, IDisposable
             if (Stopwatch.GetTimestamp() - began > budget)
                 Interlocked.Increment(ref xruns);
             for (int o = 0; o < b.Outputs.Length; o++)
-                b.Outputs[o].AsSpan(0, frames).CopyTo(buffers.GetOutput(o));
+                b.Outputs[o].AsSpan(0, frames).CopyTo(device.GetOutput(o));
         }
     }
 }

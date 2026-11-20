@@ -1,29 +1,35 @@
-using System.Text.Json.Nodes;
 using JackSharp;
-using SpiceForgeServer.Protocol;
 
-namespace SpiceForgeServer.Audio;
+namespace AudioIOSharp;
 
 /// <summary>
 /// The JACK server, through JackSharpCore: Windows (JACK2), Linux (JACK2, or PipeWire's JACK) and macOS. Its one device
 /// is the running JACK server. The channels a configuration chooses are other clients' ports, by full name
-/// (<c>system:capture_1</c>, <c>system:playback_1</c>): SpiceForge registers a port of its own for each, and connects
-/// it there. The rate and buffer size are the server's; SpiceForge reports them, and never starts a server or changes
-/// its settings, which are the user's.
+/// (<c>system:capture_1</c>, <c>system:playback_1</c>): the application's client registers a port of its own for each,
+/// and connects it there. The rate and buffer size are the server's; the driver reports them, and never starts a server
+/// or changes its settings, which are the user's.
 /// <para>The client stays in the graph while JACK is the configured driver, playing silence when nothing runs, so
-/// connections made to its ports in a patchbay last; simulations and the test swap in and out of it. Changes to its
-/// connections, and ports coming and going, are reported as they happen, and the simulation's latency is reported to
-/// JACK, so programs downstream can compensate.</para>
+/// connections made to its ports in a patchbay last; clients swap in and out of it. Changes to its connections, and
+/// ports coming and going, are reported as they happen, and the client's latency is reported to JACK, so programs
+/// downstream can compensate.</para>
 /// </summary>
-public sealed class JackDriver : AudioDriver
+public class JackDriver : AudioDriver
 {
     public const string Name = "JACK";
     public const string DeviceName = "JACK server";
-    /// <summary>The client's name in the JACK graph, which patchbays show.</summary>
-    public const string ClientName = "SpiceForge";
 
     private readonly object sync = new();
     private JackStream? open;
+
+    /// <param name="clientName">The application's client name in the JACK graph, which patchbays show.</param>
+    public JackDriver(string clientName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(clientName);
+        ClientName = clientName;
+    }
+
+    /// <summary>The application's client name in the JACK graph, which patchbays show.</summary>
+    public string ClientName { get; }
 
     /// <summary>Whether the JACK client library is installed (a server may still not be running).</summary>
     public static bool IsAvailable
@@ -59,7 +65,7 @@ public sealed class JackDriver : AudioDriver
         CheckDevice(config.Device ?? DeviceName);
         lock (sync)
             if (open != null)
-                throw new ApiException(ErrorCodes.AudioBusy, "SpiceForge's JACK client is already open.");
+                throw new AudioException(AudioErrorKind.Busy, $"The JACK client '{ClientName}' is already open.");
         Processor processor = OpenClient(ClientName, () => new Processor(ClientName));
         try
         {
@@ -88,9 +94,9 @@ public sealed class JackDriver : AudioDriver
     private static void CheckDevice(string device)
     {
         if (!IsAvailable)
-            throw new ApiException(ErrorCodes.AudioUnavailable, "JACK isn't installed: its client library (libjack) wasn't found.");
+            throw new AudioException(AudioErrorKind.Unavailable, "JACK isn't installed: its client library (libjack) wasn't found.");
         if (!string.Equals(device, DeviceName, StringComparison.OrdinalIgnoreCase))
-            throw new ApiException(ErrorCodes.NotFound, $"The JACK driver's device is '{DeviceName}', not '{device}'.");
+            throw new AudioException(AudioErrorKind.NotFound, $"The JACK driver's device is '{DeviceName}', not '{device}'.");
     }
 
     private static T OpenClient<T>(string name, Func<T> open) where T : Client
@@ -101,21 +107,21 @@ public sealed class JackDriver : AudioDriver
         }
         catch (JackException ex)
         {
-            throw new ApiException(ErrorCodes.AudioUnavailable, ex.NoServer ? "No JACK server is running: start one (with qjackctl, say)." : ex.Message);
+            throw new AudioException(AudioErrorKind.Unavailable, ex.NoServer ? "No JACK server is running: start one (with qjackctl, say)." : ex.Message);
         }
     }
 
-    /// <summary>The server's ports SpiceForge can connect to, physical ones first, its own left out; its rate and buffer
-    /// size, as the only ones offered.</summary>
-    private static AudioDeviceInfo InfoOf(Client client)
+    /// <summary>The server's ports the application can connect to, physical ones first, its own left out; its rate and
+    /// buffer size, as the only ones offered.</summary>
+    private AudioDeviceInfo InfoOf(Client client)
     {
-        static IReadOnlyList<string> Ports(Client client, Direction direction) =>
+        IReadOnlyList<string> Ports(Client client, Direction direction) =>
             client.GetPorts(type: PortType.Audio, direction: direction)
                 .Where(p => p.ClientName != ClientName && !p.ClientName.StartsWith(ClientName + "-", StringComparison.Ordinal))
                 .OrderBy(p => p.IsPhysical ? 0 : 1)
                 .Select(p => p.FullName)
                 .ToList();
-        // Sources (capture ports, other programs' outputs) feed SpiceForge's inputs; destinations take its outputs.
+        // Sources (capture ports, other programs' outputs) feed the client's inputs; destinations take its outputs.
         return new AudioDeviceInfo(
             DeviceName,
             Ports(client, Direction.Out),
@@ -127,14 +133,14 @@ public sealed class JackDriver : AudioDriver
             ControlPanel: false);
     }
 
-    private sealed class JackStream : AudioStream
+    private class JackStream : AudioStream
     {
         private readonly JackDriver owner;
         private volatile IAudioClient? client;
         private readonly Timer changes;
         private readonly string[] sources, destinations;
         private readonly AudioPort[] inputs, outputs;
-        private volatile AudioBlock block = new();
+        private volatile StreamBuffers? buffers;
         private volatile AudioFormat format;
         private int xruns;
         private int restarting;
@@ -154,7 +160,7 @@ public sealed class JackDriver : AudioDriver
                 OnFailed(e.Reason.Length > 0 ? $"The JACK server shut down: {e.Reason}" : "The JACK server shut down.");
             processor.BufferSizeChanged += (_, _) => Restart();
             processor.SampleRateChanged += (_, _) => Restart();
-            // The graph changing (connections to SpiceForge's ports, from a patchbay, say; ports coming and going) is
+            // The graph changing (connections to the client's ports, from a patchbay, say; ports coming and going) is
             // reported, a moment after the last change of a burst.
             changes = new Timer(_ => OnChanged());
             processor.PortsConnected += (_, e) =>
@@ -201,15 +207,15 @@ public sealed class JackDriver : AudioDriver
             }
         }
 
-        public override JsonArray? Connections()
+        public override IReadOnlyList<PortConnection>? Connections()
         {
-            var ports = new JsonArray();
+            var ports = new List<PortConnection>();
             void Add(AudioPort port, string channel)
             {
                 IReadOnlyList<string> connected;
                 try { connected = port.IsRegistered ? port.GetConnections() : Array.Empty<string>(); }
                 catch (Exception) { connected = Array.Empty<string>(); }
-                ports.Add(new JsonObject { ["port"] = port.FullName, ["channel"] = channel, ["connected"] = Json.Strings(connected) });
+                ports.Add(new PortConnection(port.FullName, channel, connected));
             }
             try
             {
@@ -220,7 +226,7 @@ public sealed class JackDriver : AudioDriver
             }
             catch (Exception)
             {
-                return new JsonArray();
+                return Array.Empty<PortConnection>();
             }
             return ports;
         }
@@ -244,7 +250,7 @@ public sealed class JackDriver : AudioDriver
         private AudioFormat Prepare()
         {
             var f = new AudioFormat(Processor.SampleRate, Processor.BufferSize, sources, destinations);
-            block = AudioBlock.For(f);
+            buffers = new StreamBuffers(f);
             format = f;
             client?.Prepare(f);
             return f;
@@ -303,15 +309,16 @@ public sealed class JackDriver : AudioDriver
             owner.Closed(this);
         });
 
-        // JACK's real-time thread. A port's buffer can be empty: PipeWire's JACK sometimes gives a port none for a cycle
-        // (and on Linux the server crashed copying a whole cycle into one). An input without one reads silence; an output
-        // without one is skipped.
+        // JACK's real-time thread. The client works on the ports' own buffers (native memory, valid for the cycle), with
+        // nothing copied. A port's buffer can be empty: PipeWire's JACK sometimes gives a port none for a cycle (and on
+        // Linux the server crashed copying a whole cycle into one). An input without one reads silence (a cleared array
+        // of the stream's); an output without one writes to an array of the stream's, which goes nowhere.
         private void Process(ProcessContext context)
         {
-            AudioBlock b = block;
+            StreamBuffers? b = buffers;
             int frames = context.Frames;
             IAudioClient? c = client;
-            if (c == null || frames > b.Capacity || b.Inputs.Length != inputs.Length || b.Outputs.Length != outputs.Length)
+            if (c == null || b == null || frames > b.Capacity || b.Inputs.Length != inputs.Length || b.Outputs.Length != outputs.Length)
             {
                 // Nothing running; or between a change of buffer size and the restart that prepares for it.
                 foreach (AudioPort port in outputs)
@@ -322,29 +329,29 @@ public sealed class JackDriver : AudioDriver
             {
                 Span<float> input = inputs[i].GetBuffer(context);
                 if (input.Length >= frames)
-                    input[..frames].CopyTo(b.Inputs[i]);
+                {
+                    b.InputPointers[i] = StreamBuffers.Address(input);
+                }
                 else
+                {
                     Array.Clear(b.Inputs[i], 0, frames);
+                    b.InputPointers[i] = b.InputArrays[i];
+                }
             }
-            b.Frames = frames;
-            b.Skipped = 0;
-            b.Xruns = Interlocked.Exchange(ref xruns, 0);
+            for (int o = 0; o < outputs.Length; o++)
+            {
+                Span<float> output = outputs[o].GetBuffer(context);
+                b.OutputPointers[o] = output.Length >= frames ? StreamBuffers.Address(output) : b.OutputArrays[o];
+            }
             try
             {
-                c.Process(b);
+                c.Process(b.Buffers(frames, xruns: Interlocked.Exchange(ref xruns, 0)));
             }
             catch (Exception)
             {
                 // The client reports its own failures; never let one unwind into JACK.
                 foreach (AudioPort port in outputs)
                     port.GetBuffer(context).Clear();
-                return;
-            }
-            for (int o = 0; o < outputs.Length; o++)
-            {
-                Span<float> output = outputs[o].GetBuffer(context);
-                if (output.Length >= frames)
-                    b.Outputs[o].AsSpan(0, frames).CopyTo(output);
             }
         }
     }
