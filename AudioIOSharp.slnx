@@ -3,6 +3,7 @@
     <Project Path="Dependencies/JackSharpCore/JackSharp/JackSharp.csproj" />
   </Folder>
   <Folder Name="/Solution Items/">
+    <File Path="CREDITS.md" />
     <File Path="LICENSE" />
     <File Path="README.md" />
   </Folder>
