@@ -7,7 +7,7 @@ AudioIOSharp connects your C# code to audio devices on Windows and Linux. Your c
 
 - **Duplex audio:** one callback per block reads the inputs and writes the outputs.
 - **No allocations on the audio thread:** each channel is a span, exactly one block long. With JACK, the spans are JACK's own buffers, with nothing copied.
-- **Drivers:** ASIO (Windows), JACK (Windows and Linux, including PipeWire's JACK) and **None**, an internal clock that runs your code in real time without a device.
+- **Drivers:** ASIO (Windows), ALSA (Linux), JACK (Windows and Linux, including PipeWire's JACK) and **None**, an internal clock that runs your code in real time without a device.
 - **Robust:** the **AudioEngine** keeps your code running whatever the device does. If the device can't be opened, it runs on the internal clock instead. If the device stops (unplugged, say), it switches to no device at the same sample rate. A new configuration is checked before the running device closes, and the previous one stays if the new one can't be used.
 - **Switching devices without stopping:** moving to another device or driver carries on with the same code, which is prepared for the new format. A JACK client stays in the graph between runs, so connections made in a patchbay are kept.
 
@@ -64,6 +64,7 @@ Each driver lists its devices (**Devices**) and what a device offers (**Info**: 
 AudioIOSharp needs .NET 10 or newer.
 
 - **ASIO** needs the device's ASIO driver installed. It uses [NAudio](https://github.com/naudio/NAudio)'s ASIO support.
+- **ALSA** needs ALSA's library (libasound), which Linux distributions install. It opens sound cards directly, for the lowest latency, so a card that a sound server (PipeWire or PulseAudio) is using is busy: use JACK for those, or stop the server's use of the card. Its audio thread runs at real-time priority when the user may use it (the **audio** group on most distributions); without it, audio still runs, but drops out more easily. Playback is buffered by three periods of the buffer size, which USB devices need; on PCI, PCIe and onboard devices, **new AlsaDriver(periods: 2)** has one period less latency.
 - **JACK** needs the JACK client library: [JACK2](https://jackaudio.org/) on Windows, or JACK2 or PipeWire's JACK on Linux. It uses [JackSharpCore](https://github.com/mikeoliphant/JackSharpCore).
 
 # Building

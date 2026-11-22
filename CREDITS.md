@@ -15,6 +15,7 @@ AudioIOSharp builds on other people's work. AudioIOSharp itself is MIT licensed 
 
 ### At run time
 
+- [ALSA](https://www.alsa-project.org/): the ALSA driver loads ALSA's library (libasound) installed on the system. It isn't part of AudioIOSharp, and isn't distributed with it.
 - [JACK](https://jackaudio.org/): the JACK driver loads the JACK client library installed on the system (JACK2, or PipeWire's JACK on Linux). It isn't part of AudioIOSharp, and isn't distributed with it.
 - ASIO drivers are the device makers', installed with their devices.
 

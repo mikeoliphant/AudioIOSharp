@@ -74,13 +74,15 @@ public class AudioEngine : IDisposable
         this.lastUsed = lastUsed ?? (_ => null);
     }
 
-    /// <summary>The drivers this platform has: ASIO on Windows, and JACK where it's installed (its client named
-    /// <paramref name="jackClientName"/> in the graph).</summary>
+    /// <summary>The drivers this platform has: ASIO on Windows, ALSA on Linux, and JACK where it's installed (its
+    /// client named <paramref name="jackClientName"/> in the graph).</summary>
     public static IReadOnlyList<AudioDriver> PlatformDrivers(string jackClientName)
     {
         var list = new List<AudioDriver>();
         if (OperatingSystem.IsWindows())
             list.Add(new AsioDriver());
+        if (OperatingSystem.IsLinux() && AlsaDriver.IsAvailable)
+            list.Add(new AlsaDriver());
         if (JackDriver.IsAvailable)
             list.Add(new JackDriver(jackClientName));
         return list;
