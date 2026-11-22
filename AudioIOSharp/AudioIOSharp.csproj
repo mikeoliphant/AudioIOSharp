@@ -15,9 +15,6 @@
 
   <!-- JACK through JackSharpCore (the Dependencies/JackSharpCore submodule): Windows, Linux (including PipeWire) and
        macOS. -->
-  <ItemGroup>
-    <ProjectReference Include="..\Dependencies\JackSharpCore\JackSharp\JackSharp.csproj" />
-  </ItemGroup>
 
   <!-- The tests reach the ALSA driver's sample conversions and device names -->
   <ItemGroup>
@@ -26,6 +23,7 @@
 
   <!-- ASIO through NAudio's AsioDevice (duplex, one callback per buffer). Windows only at run time. -->
   <ItemGroup>
+    <PackageReference Include="JackSharpCore" Version="1.1.1" />
     <PackageReference Include="NAudio.Asio" Version="3.3.0" />
   </ItemGroup>
 
