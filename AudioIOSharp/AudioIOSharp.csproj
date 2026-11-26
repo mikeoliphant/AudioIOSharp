@@ -18,7 +18,7 @@
     <PackageId>AudioIOSharp</PackageId>
     <Version>0.1.0</Version>
     <Authors>Mike Oliphant</Authors>
-    <Description>Real-time, allocation-free audio and MIDI I/O for .NET: ASIO, ALSA, JACK and an internal clock behind one interface, with a callback per block on the audio thread.</Description>
+    <Description>Real-time, allocation-free audio and MIDI I/O for .NET: ASIO, ALSA, JACK.</Description>
     <PackageTags>audio;midi;asio;alsa;jack;realtime</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
