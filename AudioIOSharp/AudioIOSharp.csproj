@@ -13,11 +13,10 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
-  <!-- The NuGet package. Its version comes from the release tag (release.yml passes -p:Version); other packs are
-       0.0.0-dev. -->
+  <!-- The NuGet package. Version is the release's version too: release.yml tags v<Version>. -->
   <PropertyGroup>
     <PackageId>AudioIOSharp</PackageId>
-    <Version>0.0.0-dev</Version>
+    <Version>0.1.0</Version>
     <Authors>Mike Oliphant</Authors>
     <Description>Real-time, allocation-free audio and MIDI I/O for .NET: ASIO, ALSA, JACK and an internal clock behind one interface, with a callback per block on the audio thread.</Description>
     <PackageTags>audio;midi;asio;alsa;jack;realtime</PackageTags>

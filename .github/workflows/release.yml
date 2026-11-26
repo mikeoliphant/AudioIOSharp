@@ -1,11 +1,15 @@
-# Makes a release, by hand (Actions > Release > Run workflow, with a tag like v0.1.0): tests the tagged commit, packs
-# the NuGet package with the tag's version, and creates a draft GitHub release on the tag, with the package (and its
-# symbols) attached and no notes. Write the notes and publish it on GitHub; the package isn't pushed to nuget.org here.
+# Makes a release, by hand (Actions > Release > Run workflow): tests the commit, packs the NuGet package, and creates a
+# draft GitHub release on the tag v<version>, with the package (and its symbols) attached and no notes. Write the notes
+# and publish it on GitHub; the package isn't pushed to nuget.org here.
 #
-# An existing tag is reused: its commit is the one tested and packed, whatever branch the workflow runs from. Otherwise
-# the tag is made on the commit the workflow runs on, and pushed only once the package is built, so a failed run leaves
-# nothing behind. A tag with a version suffix (v0.1.0-beta.1) makes a pre-release. A tag that already has a release
-# (a draft or published) is refused: delete a draft on GitHub to run again, so its notes aren't lost to a rerun.
+# The version is the project's (<Version> in AudioIOSharp.csproj), so a local pack, the package and the release all
+# agree: set it and commit it before running this. The tag input is optional; if given, it must be v<version>. A
+# version with a suffix (0.1.0-beta.1) makes a pre-release.
+#
+# The tag is made on the commit the workflow runs on, and pushed only once the package is built, so a failed run leaves
+# nothing behind. A tag already on this commit is reused; one on another commit is refused (the version wasn't
+# bumped). To release an existing tag, choose the tag in "Use workflow from". A tag that already has a release (a
+# draft or published) is refused: delete a draft on GitHub to run again, so its notes aren't lost to a rerun.
 #
 # One job, on Linux: the package has no native code, so it's built once, and Build has tested main on Windows and
 # Linux. The tests run here once more, on the commit being released.
@@ -15,8 +19,8 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (v0.1.0, or v0.1.0-beta.1 for a pre-release)"
-        required: true
+        description: "Release tag: leave empty for v<project version>, or give it to check (v0.1.0)"
+        required: false
 
 # One release at a time
 concurrency:
@@ -29,59 +33,70 @@ permissions:
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
-  TAG: ${{ inputs.tag }}
+  REQUESTED_TAG: ${{ inputs.tag }}
   GH_TOKEN: ${{ github.token }}
 
 jobs:
   release:
-    name: Release ${{ inputs.tag }}
+    name: Release (${{ github.ref_name }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
 
-    - name: Check the tag
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Check the version and the tag
       run: |
-        if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
-          echo "The tag '$TAG' isn't like v0.1.0 (or v0.1.0-beta.1)."; exit 1
+        version=$(dotnet msbuild AudioIOSharp/AudioIOSharp.csproj -nologo -getProperty:Version | tr -d '[:space:]')
+        if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+          echo "The project's version '$version' isn't like 0.1.0 (or 0.1.0-beta.1)."; exit 1
+        fi
+
+        tag="v$version"
+        if [ -n "$REQUESTED_TAG" ] && [ "$REQUESTED_TAG" != "$tag" ]; then
+          echo "The tag asked for is $REQUESTED_TAG, but the project's version makes it $tag."; exit 1
         fi
 
         # gh release view finds drafts too
-        if gh release view "$TAG" --json isDraft > release.json 2> /dev/null; then
+        if gh release view "$tag" --json isDraft > release.json 2> /dev/null; then
           if [ "$(jq -r .isDraft release.json)" = "true" ]; then
-            echo "There's a draft release $TAG. Delete it on GitHub, then run this again."
+            echo "There's a draft release $tag. Delete it on GitHub, then run this again."
           else
-            echo "$TAG is already released."
+            echo "$tag is already released: bump the project's version."
           fi
           exit 1
         fi
 
         rm release.json
 
-        if sha=$(git rev-parse -q --verify "refs/tags/$TAG^{commit}"); then
-          echo "$TAG exists, on $sha: releasing that commit."
-          git checkout -q --detach "$sha"
+        sha=$(git rev-parse HEAD)
+        if existing=$(git rev-parse -q --verify "refs/tags/$tag^{commit}"); then
+          if [ "$existing" != "$sha" ]; then
+            echo "$tag is on $existing, not this commit ($sha): bump the project's version, or run this from the tag."
+            exit 1
+          fi
+
+          echo "$tag is already on this commit: reusing it."
           new_tag=false
         else
-          sha=$GITHUB_SHA
-          echo "$TAG is new: it will be made on $sha."
+          echo "$tag is new: it will be made on $sha."
           new_tag=true
         fi
 
         {
-          echo "VERSION=${TAG#v}"
+          echo "VERSION=$version"
+          echo "TAG=$tag"
           echo "SHA=$sha"
           echo "NEW_TAG=$new_tag"
         } >> "$GITHUB_ENV"
-
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 10.0.x
 
     - name: Build
       run: dotnet build AudioIOSharp.slnx -c Release
@@ -91,7 +106,7 @@ jobs:
 
     - name: Pack
       run: |
-        dotnet pack AudioIOSharp/AudioIOSharp.csproj -c Release -o packages -p:Version="$VERSION" -p:ContinuousIntegrationBuild=true
+        dotnet pack AudioIOSharp/AudioIOSharp.csproj -c Release -o packages -p:ContinuousIntegrationBuild=true
 
         for f in "AudioIOSharp.$VERSION.nupkg" "AudioIOSharp.$VERSION.snupkg"; do
           [ -f "packages/$f" ] || { echo "missing packages/$f"; ls packages; exit 1; }
