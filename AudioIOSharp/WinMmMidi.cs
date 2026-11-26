@@ -18,6 +18,7 @@ internal static unsafe partial class WinMmMidi
     private const uint CallbackFunction = 0x30000;
     private const uint MimData = 0x3C3;
     private const uint MmsyserrAllocated = 4;
+    private const uint MmsyserrNoMem = 7;   // What USB MIDI drivers give for a device another program has open
 
     [StructLayout(LayoutKind.Sequential)]
     private struct MidiInCaps
@@ -132,7 +133,7 @@ internal static unsafe partial class WinMmMidi
 
     private static AudioException Error(string name, uint error)
     {
-        if (error == MmsyserrAllocated)
+        if ((error == MmsyserrAllocated) || (error == MmsyserrNoMem))
             return new AudioException(AudioErrorKind.Busy, $"The MIDI input '{name}' is in use by another program.");
 
         char* text = stackalloc char[256];
