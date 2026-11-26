@@ -1,7 +1,7 @@
 # AudioIOSharp
 Real-time, allocation-free audio and MIDI I/O for .NET
 
-AudioIOSharp connects your C# code to audio devices on Windows and Linux. Your code gets a callback for every block of audio, with the inputs to read, the outputs to write and the block's MIDI input, and nothing is allocated on the audio thread. It started as the audio engine of [SpiceForge](https://github.com/mikeoliphant/SpiceForge), and is becoming the audio engine of [AudioPlugSharp](https://github.com/mikeoliphant/AudioPlugSharp)'s standalone host too.
+AudioIOSharp connects your C# code to audio devices on Windows and Linux. Your code gets a callback for every block of audio, with the inputs to read, the outputs to write and the block's MIDI input, and nothing is allocated on the audio thread. It started as the audio engine of [SpiceForge](https://github.com/mikeoliphant/SpiceForge), and is the audio engine of [AudioPlugSharp](https://github.com/mikeoliphant/AudioPlugSharp)'s standalone host too.
 
 # Features
 
@@ -11,6 +11,14 @@ AudioIOSharp connects your C# code to audio devices on Windows and Linux. Your c
 - **Drivers:** ASIO (Windows), ALSA (Linux), JACK (Windows and Linux, including PipeWire's JACK) and **None**, an internal clock that runs your code in real time without a device.
 - **Robust:** the **AudioEngine** keeps your code running whatever the device does. If the device can't be opened, it runs on the internal clock instead. If the device stops (unplugged, say), it switches to no device at the same sample rate. A new configuration is checked before the running device closes, and the previous one stays if the new one can't be used.
 - **Switching devices without stopping:** moving to another device or driver carries on with the same code, which is prepared for the new format. A JACK client stays in the graph between runs, so connections made in a patchbay are kept.
+
+# Getting It
+
+AudioIOSharp is on NuGet as [AudioIOSharp](https://www.nuget.org/packages/AudioIOSharp):
+
+```bash
+dotnet add package AudioIOSharp
+```
 
 # Using It
 
