@@ -21,16 +21,11 @@ public enum AudioErrorKind
 /// </summary>
 public class AudioException : Exception
 {
-    public AudioException(AudioErrorKind kind, string message, object? details = null)
+    public AudioException(AudioErrorKind kind, string message)
         : base(message)
     {
         Kind = kind;
-        Details = details;
     }
 
     public AudioErrorKind Kind { get; }
-
-    /// <summary>For <see cref="AudioErrorKind.InvalidValue"/>, what the device does offer: its channel names
-    /// (<c>IReadOnlyList&lt;string&gt;</c>), rates or buffer sizes (<c>IReadOnlyList&lt;int&gt;</c>). Null otherwise.</summary>
-    public object? Details { get; }
 }

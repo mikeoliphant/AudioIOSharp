@@ -6,7 +6,7 @@ namespace AudioIOSharp;
 /// A thread that runs work one item at a time, in a single-threaded COM apartment on Windows. ASIO drivers are COM
 /// objects made for one thread: each is created, called and released on this one.
 /// </summary>
-public class StaWorker : IDisposable
+internal class StaWorker : IDisposable
 {
     private readonly BlockingCollection<Action> queue = new();
     private readonly Thread thread;

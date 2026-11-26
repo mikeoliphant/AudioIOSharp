@@ -116,7 +116,7 @@ public class AudioEngineTests
         var ex = await Assert.ThrowsAsync<AudioException>(() => engine.SetConfig(engine.Config with { SampleRate = 96000 }));
 
         Assert.Equal(AudioErrorKind.InvalidValue, ex.Kind);
-        Assert.Equal(new[] { 44100, 48000 }, (IReadOnlyList<int>)ex.Details!);
+        Assert.Contains("44100, 48000", ex.Message);
         Assert.Null(engine.Config.SampleRate);
         Assert.Same(stream, fake.Stream); // checked before closing: the running stream wasn't touched
         Assert.False(stream.Closed);

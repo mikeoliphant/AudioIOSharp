@@ -143,7 +143,7 @@ public record AudioConfig
             {
                 int i = available.ToList().FindIndex(a => string.Equals(a, name, StringComparison.OrdinalIgnoreCase));
                 return i >= 0 ? i : throw new AudioException(AudioErrorKind.InvalidValue,
-                    $"The device has no {kind} channel '{name}'. Its {kind}s are: {List(available)}.", available);
+                    $"The device has no {kind} channel '{name}'. Its {kind}s are: {List(available)}.");
             }).Distinct().ToArray();
         }
         return (Pick(Inputs, info.Inputs, 1, "input"), Pick(Outputs, info.Outputs, 2, "output"));
@@ -155,12 +155,10 @@ public record AudioConfig
         Channels(info);
         if (SampleRate is int rate && !info.SampleRates.Contains(rate))
             throw new AudioException(AudioErrorKind.InvalidValue,
-                $"The device doesn't run at {rate} Hz. It supports {List(info.SampleRates.Select(r => r.ToString()))} Hz.",
-                info.SampleRates);
+                $"The device doesn't run at {rate} Hz. It supports {List(info.SampleRates.Select(r => r.ToString()))} Hz.");
         if (BufferSize is int size && !info.BufferSizes.Contains(size))
             throw new AudioException(AudioErrorKind.InvalidValue,
-                $"The device doesn't take buffers of {size} samples. It supports {List(info.BufferSizes.Select(b => b.ToString()))}.",
-                info.BufferSizes);
+                $"The device doesn't take buffers of {size} samples. It supports {List(info.BufferSizes.Select(b => b.ToString()))}.");
         return this with { Device = info.Name };
     }
 

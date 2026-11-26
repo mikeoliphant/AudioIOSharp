@@ -8,7 +8,7 @@ namespace AudioIOSharp;
 /// <summary>
 /// ASIO devices, through NAudio's <see cref="AsioDevice"/> in duplex mode: one callback per buffer reads the inputs and
 /// writes the outputs, converted to and from the driver's native format by NAudio. Every call into a driver is made on
-/// one STA thread (<see cref="StaWorker"/>). One device is open at a time: ASIO drivers generally allow a single client,
+/// one STA thread. One device is open at a time: ASIO drivers generally allow a single client,
 /// and loading a second driver while one runs can disturb both.
 /// </summary>
 [SupportedOSPlatform("windows")]
@@ -146,7 +146,7 @@ public class AsioDriver : AudioDriver, IDisposable
 
     /// <summary>The buffer sizes a driver takes, from ASIO's minimum, maximum, preferred size and granularity: a
     /// granularity of -1 means powers of two, 0 means only the preferred size.</summary>
-    public static IReadOnlyList<int> BufferSizes(int min, int max, int preferred, int granularity)
+    internal static IReadOnlyList<int> BufferSizes(int min, int max, int preferred, int granularity)
     {
         var sizes = new SortedSet<int> { preferred };
         if (min <= 0 || max < min)

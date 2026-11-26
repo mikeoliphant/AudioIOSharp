@@ -441,10 +441,10 @@ public class AlsaDriver : AudioDriver
                 direction.Channels = (int)channels;
 
                 if (AlsaNative.HwParamsSetRate(pcm, hw, (uint)rate, 0) < 0)
-                    throw new AudioException(AudioErrorKind.InvalidValue, $"The ALSA device '{Device}' can't {what} at {rate} Hz.", info.SampleRates);
+                    throw new AudioException(AudioErrorKind.InvalidValue, $"The ALSA device '{Device}' can't {what} at {rate} Hz.");
 
                 if (AlsaNative.HwParamsSetPeriodSize(pcm, hw, (nuint)period, 0) < 0)
-                    throw new AudioException(AudioErrorKind.InvalidValue, $"The ALSA device '{Device}' can't {what} in periods of {period} samples.", info.BufferSizes);
+                    throw new AudioException(AudioErrorKind.InvalidValue, $"The ALSA device '{Device}' can't {what} in periods of {period} samples.");
 
                 uint periods = (uint)owner.Periods;
                 int dir = 0;
