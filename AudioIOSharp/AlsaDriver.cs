@@ -70,7 +70,7 @@ public class AlsaDriver : AudioDriver
     {
         CheckAvailable();
 
-        string name = AlsaName(device);
+        string name = AlsaNames.AlsaName(device);
 
         lock (sync)
             if (open.TryGetValue(name, out AlsaStream? stream))
@@ -86,7 +86,7 @@ public class AlsaDriver : AudioDriver
         CheckAvailable();
 
         string device = await DeviceOf(config);
-        string name = AlsaName(device);
+        string name = AlsaNames.AlsaName(device);
 
         lock (sync)
             if (open.ContainsKey(name))
@@ -118,27 +118,6 @@ public class AlsaDriver : AudioDriver
     }
 
     // ---- Devices ----------------------------------------------------------------------------------------------------
-
-    /// <summary>A device's name as the driver lists it: the card and device description, then the ALSA name it opens
-    /// (by card id, which stays the same across reboots, unlike the card's number).</summary>
-    internal static string DisplayName(string? description, string alsaName)
-    {
-        string first = description?.Split('\n')[0].Trim() ?? "";
-
-        return first.Length > 0 ? $"{first} ({alsaName})" : alsaName;
-    }
-
-    /// <summary>The ALSA name a device opens: the hardware name at the end of a listed name, or the name itself (any
-    /// ALSA PCM name, for devices that aren't listed).</summary>
-    internal static string AlsaName(string device)
-    {
-        int open = device.LastIndexOf(" (hw:", StringComparison.Ordinal);
-
-        if ((open >= 0) && device.EndsWith(')'))
-            return device.Substring(open + 2, device.Length - open - 3);
-
-        return device;
-    }
 
     // The hardware PCM devices (hw:CARD=...,DEV=...): every card's PCM devices with capture or playback, from the
     // cards themselves (as aplay -l lists them), not from ALSA's configuration, whose name hints can leave them out.
@@ -177,7 +156,7 @@ public class AlsaDriver : AudioDriver
                         if (pcmName == null)
                             continue;
 
-                        devices.Add(DisplayName($"{cardName}, {pcmName}", $"hw:CARD={id},DEV={device}"));
+                        devices.Add(AlsaNames.DisplayName($"{cardName}, {pcmName}", $"hw:CARD={id},DEV={device}"));
                     }
                 }
                 finally
@@ -251,7 +230,7 @@ public class AlsaDriver : AudioDriver
 
     // The listed name of a hardware device, if it was asked for by its ALSA name alone.
     private static string DisplayFor(string device, string name) =>
-        device != name ? device : HardwareDevices().FirstOrDefault(d => AlsaName(d) == name) ?? device;
+        device != name ? device : HardwareDevices().FirstOrDefault(d => AlsaNames.AlsaName(d) == name) ?? device;
 
     // What one direction of the device offers, or null (with the error) if it can't be opened.
     private static Capabilities? Query(string name, int stream, out int error)

@@ -57,9 +57,8 @@ internal static unsafe partial class AlsaSeqMidi
         throw new AudioException(AudioErrorKind.NotFound, $"There's no MIDI input '{name}'.");
     }
 
-    /// <summary>The ports other programs can subscribe to for reading, but the system's own (timer, announcements).
-    /// A port is named by its own name when that starts with its client's (a USB keyboard's "MPK mini 3 MIDI 1"), else
-    /// by both ("VMPK Output: out").</summary>
+    /// <summary>The ports other programs can subscribe to for reading, but the system's own (timer, announcements),
+    /// named by <see cref="AlsaNames.PortName"/>.</summary>
     private static List<Port> Ports()
     {
         var ports = new List<Port>();
@@ -99,7 +98,7 @@ internal static unsafe partial class AlsaSeqMidi
                         continue;
 
                     string portName = (Marshal.PtrToStringUTF8(snd_seq_port_info_get_name(portInfo)) ?? "").Trim();
-                    string name = PortName(clientName.Trim(), portName);
+                    string name = AlsaNames.PortName(clientName.Trim(), portName);
                     string unique = name;
 
                     for (int n = 2; ports.Any(p => string.Equals(p.Name, unique, StringComparison.OrdinalIgnoreCase)); n++)
@@ -121,17 +120,6 @@ internal static unsafe partial class AlsaSeqMidi
         }
 
         return ports;
-    }
-
-    internal static string PortName(string client, string port)
-    {
-        if (port.Length == 0)
-            return (client.Length > 0) ? client : "MIDI input";
-
-        if ((client.Length == 0) || port.StartsWith(client, StringComparison.OrdinalIgnoreCase))
-            return port;
-
-        return $"{client}: {port}";
     }
 
     private class Input : MidiInput

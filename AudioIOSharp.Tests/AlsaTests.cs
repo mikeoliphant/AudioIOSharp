@@ -164,16 +164,16 @@ public unsafe class AlsaTests
     [Fact]
     public void Device_names_show_the_card_and_open_the_hardware_name()
     {
-        string listed = AlsaDriver.DisplayName("HDA Intel PCH, ALC892 Analog\nDirect hardware device without any conversions",
+        string listed = AlsaNames.DisplayName("HDA Intel PCH, ALC892 Analog\nDirect hardware device without any conversions",
             "hw:CARD=PCH,DEV=0");
 
         Assert.Equal("HDA Intel PCH, ALC892 Analog (hw:CARD=PCH,DEV=0)", listed);
-        Assert.Equal("hw:CARD=PCH,DEV=0", AlsaDriver.AlsaName(listed));
+        Assert.Equal("hw:CARD=PCH,DEV=0", AlsaNames.AlsaName(listed));
 
         // Without a description, and other ALSA names, as they are
-        Assert.Equal("hw:CARD=USB,DEV=1", AlsaDriver.DisplayName(null, "hw:CARD=USB,DEV=1"));
-        Assert.Equal("hw:1,0", AlsaDriver.AlsaName("hw:1,0"));
-        Assert.Equal("null", AlsaDriver.AlsaName("null"));
-        Assert.Equal("Mixer (Front) output", AlsaDriver.AlsaName("Mixer (Front) output"));
+        Assert.Equal("hw:CARD=USB,DEV=1", AlsaNames.DisplayName(null, "hw:CARD=USB,DEV=1"));
+        Assert.Equal("hw:1,0", AlsaNames.AlsaName("hw:1,0"));
+        Assert.Equal("null", AlsaNames.AlsaName("null"));
+        Assert.Equal("Mixer (Front) output", AlsaNames.AlsaName("Mixer (Front) output"));
     }
 }
