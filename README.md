@@ -1,7 +1,7 @@
 # AudioIOSharp
 Real-time, allocation-free audio and MIDI I/O for .NET
 
-AudioIOSharp connects your C# code to audio devices on Windows and Linux. Your code gets a callback for every block of audio, with the inputs to read, the outputs to write and the block's MIDI input, and nothing is allocated on the audio thread. It started as the audio engine of [SpiceForge](https://github.com/mikeoliphant/SpiceForge), and is the audio engine of [AudioPlugSharp](https://github.com/mikeoliphant/AudioPlugSharp)'s standalone host too.
+AudioIOSharp connects your C# code to audio devices on Windows and Linux. Your code gets a callback for every block of audio, with the inputs to read, the outputs to write and the block's MIDI input, and nothing is allocated on the audio thread. It started as the audio engine of [SpiceForge](https://github.com/mikeoliphant/SpiceForge), and is also the audio engine of [AudioPlugSharp](https://github.com/mikeoliphant/AudioPlugSharp)'s standalone host.
 
 # Features
 
