@@ -13,15 +13,38 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
-  <!-- JACK through JackSharpCore (the Dependencies/JackSharpCore submodule): Windows, Linux (including PipeWire) and
-       macOS. -->
+  <!-- The NuGet package. Its version comes from the release tag (release.yml passes -p:Version); other packs are
+       0.0.0-dev. -->
+  <PropertyGroup>
+    <PackageId>AudioIOSharp</PackageId>
+    <Version>0.0.0-dev</Version>
+    <Authors>Mike Oliphant</Authors>
+    <Description>Real-time, allocation-free audio and MIDI I/O for .NET: ASIO, ALSA, JACK and an internal clock behind one interface, with a callback per block on the audio thread.</Description>
+    <PackageTags>audio;midi;asio;alsa;jack;realtime</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/mikeoliphant/AudioIOSharp</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/mikeoliphant/AudioIOSharp</RepositoryUrl>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <!-- The XML docs go in the package, for IntelliSense. No warnings for public members without comments. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\CREDITS.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
   <!-- The tests reach the ALSA driver's sample conversions and device names -->
   <ItemGroup>
     <InternalsVisibleTo Include="AudioIOSharp.Tests" />
   </ItemGroup>
 
-  <!-- ASIO through NAudio's AsioDevice (duplex, one callback per buffer). Windows only at run time. -->
+  <!-- JACK through JackSharpCore: Windows, Linux (including PipeWire) and macOS. ASIO through NAudio's AsioDevice
+       (duplex, one callback per buffer): Windows only at run time. -->
   <ItemGroup>
     <PackageReference Include="JackSharpCore" Version="1.1.1" />
     <PackageReference Include="NAudio.Asio" Version="3.3.0" />

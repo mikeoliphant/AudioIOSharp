@@ -95,10 +95,10 @@ AudioIOSharp needs .NET 10 or newer.
 
 # Building
 
-Clone the repository with its submodules:
+Clone the repository:
 
 ```bash
-git clone --recurse-submodules https://github.com/mikeoliphant/AudioIOSharp
+git clone https://github.com/mikeoliphant/AudioIOSharp
 ```
 
 Then build **AudioIOSharp.slnx**, and run the tests with **dotnet test AudioIOSharp.Tests**.

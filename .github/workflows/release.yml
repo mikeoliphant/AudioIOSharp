@@ -1,0 +1,156 @@
+# Makes a release, by hand (Actions > Release > Run workflow, with a tag like v0.1.0): tests the tagged commit on
+# Windows and Linux, packs the NuGet package with the tag's version, and creates a draft GitHub release on the tag, with
+# the package (and its symbols) attached and no notes. Write the notes and publish it on GitHub; the package isn't pushed
+# to nuget.org here.
+#
+# An existing tag is reused: its commit is the one tested and packed, whatever branch the workflow runs from. Otherwise
+# the tag is made on the commit the workflow runs on, and pushed only once the package is built, so a failed run leaves
+# nothing behind. A tag with a version suffix (v0.1.0-beta.1) makes a pre-release. A tag that already has a release
+# (a draft or published) is refused: delete a draft on GitHub to run again, so its notes aren't lost to a rerun.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (v0.1.0, or v0.1.0-beta.1 for a pre-release)"
+        required: true
+
+# One release at a time
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  TAG: ${{ inputs.tag }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  # Checks the tag and finds the commit to release: the tag's, if it exists, or this run's.
+  prepare:
+    name: Check the tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      sha: ${{ steps.check.outputs.sha }}
+      new-tag: ${{ steps.check.outputs.new-tag }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Check the tag
+      id: check
+      run: |
+        if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+          echo "The tag '$TAG' isn't like v0.1.0 (or v0.1.0-beta.1)."; exit 1
+        fi
+
+        # gh release view finds drafts too
+        if gh release view "$TAG" --json isDraft > release.json 2> /dev/null; then
+          if [ "$(jq -r .isDraft release.json)" = "true" ]; then
+            echo "There's a draft release $TAG. Delete it on GitHub, then run this again."
+          else
+            echo "$TAG is already released."
+          fi
+          exit 1
+        fi
+
+        if sha=$(git rev-parse -q --verify "refs/tags/$TAG^{commit}"); then
+          echo "$TAG exists, on $sha: releasing that commit."
+          new_tag=false
+        else
+          sha=$GITHUB_SHA
+          echo "$TAG is new: it will be made on $sha."
+          new_tag=true
+        fi
+
+        {
+          echo "version=${TAG#v}"
+          echo "sha=$sha"
+          echo "new-tag=$new_tag"
+        } >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Build and test (${{ matrix.os }})
+    needs: prepare
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ needs.prepare.outputs.sha }}
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Build
+      run: dotnet build AudioIOSharp.slnx -c Release
+
+    - name: Test
+      run: dotnet test AudioIOSharp.Tests -c Release --no-build
+
+  release:
+    name: Pack and draft the release
+    needs: [prepare, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      SHA: ${{ needs.prepare.outputs.sha }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ needs.prepare.outputs.sha }}
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Pack
+      run: |
+        dotnet pack AudioIOSharp/AudioIOSharp.csproj -c Release -o packages -p:Version="$VERSION" -p:ContinuousIntegrationBuild=true
+
+        for f in "AudioIOSharp.$VERSION.nupkg" "AudioIOSharp.$VERSION.snupkg"; do
+          [ -f "packages/$f" ] || { echo "missing packages/$f"; ls packages; exit 1; }
+        done
+
+    - name: Push the tag
+      if: needs.prepare.outputs.new-tag == 'true'
+      run: |
+        git tag "$TAG" "$SHA"
+
+        git push origin "refs/tags/$TAG"
+
+    - name: Create the draft release
+      run: |
+        flags=()
+        if [[ "$VERSION" == *-* ]]; then flags+=(--prerelease); fi
+
+        gh release create "$TAG" packages/AudioIOSharp."$VERSION".nupkg packages/AudioIOSharp."$VERSION".snupkg \
+          --verify-tag --draft --title "AudioIOSharp $VERSION" --notes "" "${flags[@]}"
+
+    - name: Upload the package
+      uses: actions/upload-artifact@v4
+      with:
+        name: nuget-package
+        path: packages/
+        if-no-files-found: error
