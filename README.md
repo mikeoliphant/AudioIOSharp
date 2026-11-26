@@ -6,7 +6,7 @@ AudioIOSharp connects your C# code to audio devices on Windows and Linux. Your c
 # Features
 
 - **Duplex audio:** one callback per block reads the inputs and writes the outputs.
-- **MIDI input:** each block's MIDI messages come with the audio, in time order, each at its sample offset in the block, as with JACK.
+- **MIDI input:** each block's MIDI messages come with the audio, in time order, each at its sample offset in the block. From JACK's MIDI ports, Windows' MIDI devices (WinMM) or the ALSA sequencer on Linux.
 - **No allocations on the audio thread:** each channel is a span, exactly one block long. With JACK, the spans are JACK's own buffers, with nothing copied.
 - **Drivers:** ASIO (Windows), ALSA (Linux), JACK (Windows and Linux, including PipeWire's JACK) and **None**, an internal clock that runs your code in real time without a device.
 - **Robust:** the **AudioEngine** keeps your code running whatever the device does. If the device can't be opened, it runs on the internal clock instead. If the device stops (unplugged, say), it switches to no device at the same sample rate. A new configuration is checked before the running device closes, and the previous one stays if the new one can't be used.
@@ -73,7 +73,7 @@ foreach (MidiEvent midi in buffers.Midi)
 
 Each event has its **Offset** in the block, the **Port** it came from (an index into **AudioFormat.MidiInputs**), and its **Status**, **Data1** and **Data2** bytes. Short messages are passed on; sysex isn't.
 
-With JACK, the MIDI inputs are other programs' MIDI ports, and messages arrive at the sample offsets JACK gives. With the other drivers, they're the system's MIDI devices. Their messages arrive one block late, placed in the block where they arrived in the previous one, so their timing is kept.
+With JACK, the MIDI inputs are other programs' MIDI ports, and messages arrive at the sample offsets JACK gives. With the other drivers, they're the system's MIDI inputs: Windows' MIDI devices, or on Linux the ALSA sequencer's ports (MIDI devices and other programs). Their messages arrive one block late, placed in the block where they arrived in the previous one, so their timing is kept.
 
 A MIDI input that isn't there (a keyboard unplugged) or that another program has open doesn't stop the audio: the device opens without it, and **AudioState.MidiErrors** says why.
 
@@ -90,7 +90,7 @@ AudioIOSharp needs .NET 10 or newer.
 
 - **ASIO** needs the device's ASIO driver installed. It uses [NAudio](https://github.com/naudio/NAudio)'s ASIO support.
 - **ALSA** needs ALSA's library (libasound), which Linux distributions install. It opens sound cards directly, for the lowest latency, so a card that a sound server (PipeWire or PulseAudio) is using is busy: use JACK for those, or stop the server's use of the card. Its audio thread runs at real-time priority when the user may use it (the **audio** group on most distributions); without it, audio still runs, but drops out more easily. Playback is buffered by three periods of the buffer size, which USB devices need; on PCI, PCIe and onboard devices, **new AlsaDriver(periods: 2)** has one period less latency.
-- **MIDI** uses Windows' MIDI devices (WinMM) with ASIO and the internal clock. On Linux, MIDI input is through JACK for now. Before Windows MIDI Services, a Windows MIDI device can be open in only one program at a time.
+- **MIDI** uses Windows' MIDI devices (WinMM) with ASIO and the internal clock, and the ALSA sequencer's ports (MIDI devices and other programs) with ALSA and the internal clock on Linux. Before Windows MIDI Services, a Windows MIDI device can be open in only one program at a time; an ALSA sequencer port can feed several.
 - **JACK** needs the JACK client library: [JACK2](https://jackaudio.org/) on Windows, or JACK2 or PipeWire's JACK on Linux. It uses [JackSharpCore](https://github.com/mikeoliphant/JackSharpCore).
 
 # Building

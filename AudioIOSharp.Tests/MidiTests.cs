@@ -143,6 +143,15 @@ public class MidiTests
         await engine.Detach(client);
     }
 
+    [Fact]
+    public void Alsa_ports_are_named_by_their_own_name_unless_it_leaves_out_their_clients()
+    {
+        Assert.Equal("MPK mini 3 MIDI 1", AlsaSeqMidi.PortName("MPK mini 3", "MPK mini 3 MIDI 1"));
+        Assert.Equal("VMPK Output: out", AlsaSeqMidi.PortName("VMPK Output", "out"));
+        Assert.Equal("Keyboard", AlsaSeqMidi.PortName("Keyboard", ""));
+        Assert.Equal("out", AlsaSeqMidi.PortName("", "out"));
+    }
+
     private class TestInput : MidiInput
     {
         public override void Dispose() { }

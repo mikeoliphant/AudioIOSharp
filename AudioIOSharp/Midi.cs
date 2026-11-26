@@ -184,7 +184,7 @@ internal abstract class MidiInput : IDisposable
 }
 
 /// <summary>The system's MIDI inputs, for drivers whose devices carry no MIDI of their own (every driver but JACK):
-/// WinMM's on Windows; none elsewhere yet.</summary>
+/// WinMM's on Windows, the ALSA sequencer's on Linux.</summary>
 internal static class SystemMidi
 {
     public static IReadOnlyList<string> Inputs()
@@ -193,6 +193,9 @@ internal static class SystemMidi
         {
             if (OperatingSystem.IsWindows())
                 return WinMmMidi.Inputs();
+
+            if (OperatingSystem.IsLinux())
+                return AlsaSeqMidi.Inputs();
         }
         catch (Exception)
         {
@@ -206,6 +209,9 @@ internal static class SystemMidi
     {
         if (OperatingSystem.IsWindows())
             return WinMmMidi.Open(name);
+
+        if (OperatingSystem.IsLinux())
+            return AlsaSeqMidi.Open(name);
 
         throw new AudioException(AudioErrorKind.Unsupported, "MIDI inputs aren't supported on this platform yet.");
     }
