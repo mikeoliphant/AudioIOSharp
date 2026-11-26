@@ -74,7 +74,7 @@ public class AlsaDriver : AudioDriver
 
         lock (sync)
             if (open.TryGetValue(name, out AlsaStream? stream))
-                return stream.Info;
+                return stream.Info with { MidiInputs = SystemMidi.Inputs() };
 
         return Probe(device, name);
     });
@@ -243,7 +243,10 @@ public class AlsaDriver : AudioDriver
             sizeList,
             defaultRate,
             defaultSize,
-            ControlPanel: false);
+            ControlPanel: false)
+        {
+            MidiInputs = SystemMidi.Inputs(),
+        };
     }
 
     // The listed name of a hardware device, if it was asked for by its ALSA name alone.
@@ -335,6 +338,7 @@ public class AlsaDriver : AudioDriver
         private readonly bool linked;
         private readonly int period;
         private readonly StreamBuffers buffers;
+        private readonly TimedMidiInputs midi;
         private volatile bool stopping;
         private int xruns;
         private bool closed;
@@ -376,13 +380,29 @@ public class AlsaDriver : AudioDriver
                 throw;
             }
 
+            midi = new TimedMidiInputs(config);
+
             Format = new AudioFormat(rate, period,
                 inputs.Select(i => info.Inputs[i]).ToArray(),
-                outputs.Select(o => info.Outputs[o]).ToArray());
+                outputs.Select(o => info.Outputs[o]).ToArray())
+            {
+                MidiInputs = midi.Names,
+            };
 
             buffers = new StreamBuffers(Format);
 
-            client.Prepare(Format);
+            try
+            {
+                client.Prepare(Format);
+            }
+            catch
+            {
+                midi.Dispose();
+
+                CloseDevices();
+
+                throw;
+            }
 
             thread = new Thread(Run) { IsBackground = true, Name = "ALSA audio", Priority = ThreadPriority.Highest };
             thread.Start();
@@ -403,6 +423,8 @@ public class AlsaDriver : AudioDriver
         public override int InputLatency => (capture.Pcm != 0) ? period : 0;
 
         public override int OutputLatency => (playback.Pcm != 0) ? playback.BufferFrames : 0;
+
+        public override IReadOnlyList<string> MidiErrors => midi.Errors;
 
         // Opens one direction with all its channels, at the rate and period size, in the best format it takes
         private Direction OpenDirection(int stream, int rate, int[] selected, AudioDeviceInfo info)
@@ -508,6 +530,8 @@ public class AlsaDriver : AudioDriver
 
             CloseDevices();
 
+            midi.Dispose();
+
             owner.Closed(this);
         });
 
@@ -610,6 +634,8 @@ public class AlsaDriver : AudioDriver
         {
             StreamBuffers b = buffers;
             int error;
+
+            midi.Fill(b.Midi, period, Format.SampleRate);
 
             if (capture.Pcm != 0)
             {

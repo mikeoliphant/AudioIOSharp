@@ -72,7 +72,10 @@ public class JackDriver : AudioDriver
             AudioDeviceInfo info = InfoOf(processor);
             config = config.Checked(info);
             var (inputs, outputs) = config.Channels(info);
-            var stream = new JackStream(this, processor, inputs.Select(i => info.Inputs[i]).ToArray(), outputs.Select(o => info.Outputs[o]).ToArray(), client);
+            var (midiSources, missing) = config.MidiInputsIn(info.MidiInputs);
+            string[] midiErrors = missing.Select(m => $"The JACK MIDI port '{m}' isn't in the graph.").ToArray();
+            var stream = new JackStream(this, processor, inputs.Select(i => info.Inputs[i]).ToArray(), outputs.Select(o => info.Outputs[o]).ToArray(),
+                midiSources, midiErrors, client);
             lock (sync)
                 open = stream;
             return stream;
@@ -115,8 +118,8 @@ public class JackDriver : AudioDriver
     /// buffer size, as the only ones offered.</summary>
     private AudioDeviceInfo InfoOf(Client client)
     {
-        IReadOnlyList<string> Ports(Client client, Direction direction) =>
-            client.GetPorts(type: PortType.Audio, direction: direction)
+        IReadOnlyList<string> Ports(Client client, Direction direction, PortType type = PortType.Audio) =>
+            client.GetPorts(type: type, direction: direction)
                 .Where(p => p.ClientName != ClientName && !p.ClientName.StartsWith(ClientName + "-", StringComparison.Ordinal))
                 .OrderBy(p => p.IsPhysical ? 0 : 1)
                 .Select(p => p.FullName)
@@ -130,7 +133,11 @@ public class JackDriver : AudioDriver
             new[] { client.BufferSize },
             client.SampleRate,
             client.BufferSize,
-            ControlPanel: false);
+            ControlPanel: false)
+        {
+            // Sources of MIDI: hardware (system:midi_capture_N, or a bridge's) and other programs' outputs.
+            MidiInputs = Ports(client, Direction.Out, PortType.Midi),
+        };
     }
 
     private class JackStream : AudioStream
@@ -138,23 +145,29 @@ public class JackDriver : AudioDriver
         private readonly JackDriver owner;
         private volatile IAudioClient? client;
         private readonly Timer changes;
-        private readonly string[] sources, destinations;
+        private readonly string[] sources, destinations, midiSources;
         private readonly AudioPort[] inputs, outputs;
+        private readonly MidiPort[] midiInputs;
+        private readonly IReadOnlyList<string> midiErrors;
         private volatile StreamBuffers? buffers;
         private volatile AudioFormat format;
         private int xruns;
         private int restarting;
         private bool closed;
 
-        public JackStream(JackDriver owner, Processor processor, string[] sources, string[] destinations, IAudioClient? client)
+        public JackStream(JackDriver owner, Processor processor, string[] sources, string[] destinations, string[] midiSources,
+            IReadOnlyList<string> midiErrors, IAudioClient? client)
         {
             this.owner = owner;
             Processor = processor;
             this.client = client;
             this.sources = sources;
             this.destinations = destinations;
+            this.midiSources = midiSources;
+            this.midiErrors = midiErrors;
             inputs = sources.Select((_, i) => processor.RegisterAudioPort($"in_{i + 1}", Direction.In)).ToArray();
             outputs = destinations.Select((_, i) => processor.RegisterAudioPort($"out_{i + 1}", Direction.Out)).ToArray();
+            midiInputs = midiSources.Select((_, i) => processor.RegisterMidiPort($"midi_in_{i + 1}", Direction.In)).ToArray();
             processor.Xrun += (_, _) => Interlocked.Increment(ref xruns);
             processor.Shutdown += (_, e) =>
                 OnFailed(e.Reason.Length > 0 ? $"The JACK server shut down: {e.Reason}" : "The JACK server shut down.");
@@ -210,7 +223,7 @@ public class JackDriver : AudioDriver
         public override IReadOnlyList<PortConnection>? Connections()
         {
             var ports = new List<PortConnection>();
-            void Add(AudioPort port, string channel)
+            void Add(Port port, string channel)
             {
                 IReadOnlyList<string> connected;
                 try { connected = port.IsRegistered ? port.GetConnections() : Array.Empty<string>(); }
@@ -223,6 +236,8 @@ public class JackDriver : AudioDriver
                     Add(inputs[i], sources[i]);
                 for (int o = 0; o < outputs.Length; o++)
                     Add(outputs[o], destinations[o]);
+                for (int m = 0; m < midiInputs.Length; m++)
+                    Add(midiInputs[m], midiSources[m]);
             }
             catch (Exception)
             {
@@ -236,6 +251,7 @@ public class JackDriver : AudioDriver
         public override string Device => DeviceName;
         public override AudioFormat Format => format;
         public override int BufferSize => format.MaxFrames;
+        public override IReadOnlyList<string> MidiErrors => midiErrors;
 
         // What the connected ports report: how long ago what arrives was captured, how long until what leaves is heard.
         public override int InputLatency => Latency(inputs, LatencyMode.Capture);
@@ -249,7 +265,7 @@ public class JackDriver : AudioDriver
 
         private AudioFormat Prepare()
         {
-            var f = new AudioFormat(Processor.SampleRate, Processor.BufferSize, sources, destinations);
+            var f = new AudioFormat(Processor.SampleRate, Processor.BufferSize, sources, destinations) { MidiInputs = midiSources };
             buffers = new StreamBuffers(f);
             format = f;
             client?.Prepare(f);
@@ -262,6 +278,8 @@ public class JackDriver : AudioDriver
                 inputs[i].ConnectTo(sources[i]);
             for (int o = 0; o < outputs.Length; o++)
                 outputs[o].ConnectTo(destinations[o]);
+            for (int m = 0; m < midiInputs.Length; m++)
+                midiInputs[m].ConnectTo(midiSources[m]);
         }
 
         // The server's buffer size or rate changed: prepare the client for it while nothing runs (deactivating drops the
@@ -343,6 +361,8 @@ public class JackDriver : AudioDriver
                 Span<float> output = outputs[o].GetBuffer(context);
                 b.OutputPointers[o] = output.Length >= frames ? StreamBuffers.Address(output) : b.OutputArrays[o];
             }
+
+            ReadMidi(context, b.Midi, frames);
             try
             {
                 c.Process(b.Buffers(frames, xruns: Interlocked.Exchange(ref xruns, 0)));
@@ -353,6 +373,26 @@ public class JackDriver : AudioDriver
                 foreach (AudioPort port in outputs)
                     port.GetBuffer(context).Clear();
             }
+        }
+
+        // The cycle's MIDI from every input port, at the frames JACK gives, merged in time order
+        private void ReadMidi(ProcessContext context, MidiBuffer midi, int frames)
+        {
+            midi.Clear();
+
+            for (int port = 0; port < midiInputs.Length; port++)
+            {
+                foreach (JackSharp.MidiEvent e in midiInputs[port].GetEvents(context))
+                {
+                    int offset = (int)Math.Min(e.Time, (uint)Math.Max(frames - 1, 0));
+
+                    if (MidiEvent.TryParse(e.Data, offset, port, out MidiEvent parsed))
+                        midi.Add(parsed);
+                }
+            }
+
+            if (midiInputs.Length > 1)
+                midi.Sort();
         }
     }
 }

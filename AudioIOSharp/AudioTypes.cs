@@ -2,7 +2,11 @@ namespace AudioIOSharp;
 
 /// <summary>What an open stream runs at: its rate, the most frames a callback can carry, and the channels it opened,
 /// by name, in the order of <see cref="AudioBuffers.Input"/> and <see cref="AudioBuffers.Output"/>.</summary>
-public record AudioFormat(double SampleRate, int MaxFrames, IReadOnlyList<string> Inputs, IReadOnlyList<string> Outputs);
+public record AudioFormat(double SampleRate, int MaxFrames, IReadOnlyList<string> Inputs, IReadOnlyList<string> Outputs)
+{
+    /// <summary>The MIDI inputs the stream opened, by name, in the order of <see cref="MidiEvent.Port"/>.</summary>
+    public IReadOnlyList<string> MidiInputs { get; init; } = Array.Empty<string>();
+}
 
 /// <summary>
 /// One callback's audio: a span per channel, exactly <see cref="Frames"/> long. Valid only during the callback: the
@@ -18,16 +22,23 @@ public readonly unsafe ref struct AudioBuffers
     /// <paramref name="frames"/> floats that can't move for as long as the buffers are used: native memory, or a
     /// pinned array.
     /// </summary>
-    public AudioBuffers(ReadOnlySpan<nint> inputs, ReadOnlySpan<nint> outputs, int frames, long skipped = 0, int xruns = 0)
+    public AudioBuffers(ReadOnlySpan<nint> inputs, ReadOnlySpan<nint> outputs, int frames, long skipped = 0, int xruns = 0,
+        ReadOnlySpan<MidiEvent> midi = default)
     {
         this.inputs = inputs;
         this.outputs = outputs;
         Frames = frames;
         Skipped = skipped;
         Xruns = xruns;
+        Midi = midi;
     }
 
     public int Frames { get; }
+
+    /// <summary>The block's MIDI input, from every MIDI input the stream opened, in order of
+    /// <see cref="MidiEvent.Offset"/>. From JACK, at the frames JACK gives; from other drivers' (system) MIDI inputs,
+    /// one block late, at the positions the messages arrived in the previous block.</summary>
+    public ReadOnlySpan<MidiEvent> Midi { get; }
 
     /// <summary>Frames the stream's clock skipped before this block, after falling behind (the internal clock only).</summary>
     public long Skipped { get; }
@@ -75,13 +86,21 @@ public record AudioDeviceInfo(
     IReadOnlyList<int> BufferSizes,
     int DefaultSampleRate,
     int DefaultBufferSize,
-    bool ControlPanel);
+    bool ControlPanel)
+{
+    /// <summary>The MIDI inputs a configuration can open with the device: JACK's MIDI ports, for JACK; the system's MIDI
+    /// inputs, for the other drivers.</summary>
+    public IReadOnlyList<string> MidiInputs { get; init; } = Array.Empty<string>();
+}
 
 /// <summary>
 /// An audio configuration: a driver, one of its devices, and the channels, rate and buffer size to open it with.
 /// Channels are named, so a configuration still means the same channels when a device's list changes. A null field
 /// means the device's default: its first device; its first input and first two outputs; its current rate; its
 /// preferred buffer size.
+/// <para>MIDI inputs are named too, and none is the default. Unlike channels, a MIDI input that isn't there (a keyboard
+/// unplugged) doesn't stop the configuration from being used: the stream opens without it, and says so
+/// (<see cref="AudioStream.MidiErrors"/>).</para>
 /// </summary>
 public record AudioConfig
 {
@@ -91,6 +110,27 @@ public record AudioConfig
     public IReadOnlyList<string>? Outputs { get; init; }
     public int? SampleRate { get; init; }
     public int? BufferSize { get; init; }
+    public IReadOnlyList<string>? MidiInputs { get; init; }
+
+    /// <summary>The configuration's MIDI inputs that are among <paramref name="available"/>, as those spell them, and
+    /// the ones that aren't.</summary>
+    public (string[] Present, string[] Missing) MidiInputsIn(IReadOnlyList<string> available)
+    {
+        var present = new List<string>();
+        var missing = new List<string>();
+
+        foreach (string name in MidiInputs ?? Array.Empty<string>())
+        {
+            string? found = available.FirstOrDefault(a => string.Equals(a, name, StringComparison.OrdinalIgnoreCase));
+
+            if (found == null)
+                missing.Add(name);
+            else if (!present.Contains(found))
+                present.Add(found);
+        }
+
+        return (present.ToArray(), missing.ToArray());
+    }
 
     /// <summary>The device's channels this configuration opens, by index into the device's own lists.</summary>
     public (int[] Inputs, int[] Outputs) Channels(AudioDeviceInfo info)
@@ -142,6 +182,9 @@ public abstract class AudioStream
     public abstract int BufferSize { get; }
     public virtual int InputLatency => 0;
     public virtual int OutputLatency => 0;
+
+    /// <summary>Why MIDI inputs the configuration names weren't opened (not there, or in use by another program).</summary>
+    public virtual IReadOnlyList<string> MidiErrors => Array.Empty<string>();
 
     /// <summary>Raised, off the audio thread, when the device stops on its own: unplugged, or a driver fault.</summary>
     public event Action<AudioStream, string>? Failed;

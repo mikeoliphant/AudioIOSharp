@@ -24,7 +24,7 @@ public class ClockDriver : AudioDriver
 
     public override Task<IReadOnlyList<string>> Devices() => Task.FromResult<IReadOnlyList<string>>(new[] { DeviceName });
 
-    public override Task<AudioDeviceInfo> Info(string device) => Task.FromResult(info);
+    public override Task<AudioDeviceInfo> Info(string device) => Task.FromResult(info with { MidiInputs = SystemMidi.Inputs() });
 
     public override Task<AudioStream> Open(AudioConfig config, IAudioClient? client)
     {
@@ -32,21 +32,35 @@ public class ClockDriver : AudioDriver
         // A rate or size this clock doesn't offer (a fallback from a device's settings) gets the default.
         int rate = config.SampleRate is int r && info.SampleRates.Contains(r) ? r : DefaultSampleRate;
         int size = config.BufferSize is int b && info.BufferSizes.Contains(b) ? b : DefaultBufferSize;
-        return Task.FromResult<AudioStream>(new ClockStream(rate, size, client));
+        return Task.FromResult<AudioStream>(new ClockStream(rate, size, client, new TimedMidiInputs(config)));
     }
 
     private class ClockStream : AudioStream
     {
         private readonly IAudioClient client;
+        private readonly TimedMidiInputs midi;
+        private readonly MidiBuffer midiBuffer = new();
         private readonly Thread thread;
         private volatile bool stopping;
 
-        public ClockStream(int sampleRate, int bufferSize, IAudioClient client)
+        public ClockStream(int sampleRate, int bufferSize, IAudioClient client, TimedMidiInputs midi)
         {
             this.client = client;
+            this.midi = midi;
             BufferSize = bufferSize;
-            Format = new AudioFormat(sampleRate, bufferSize, Array.Empty<string>(), Array.Empty<string>());
-            client.Prepare(Format);
+            Format = new AudioFormat(sampleRate, bufferSize, Array.Empty<string>(), Array.Empty<string>()) { MidiInputs = midi.Names };
+
+            try
+            {
+                client.Prepare(Format);
+            }
+            catch
+            {
+                midi.Dispose();
+
+                throw;
+            }
+
             thread = new Thread(Run) { IsBackground = true, Name = "Audio clock", Priority = ThreadPriority.AboveNormal };
             thread.Start();
         }
@@ -55,11 +69,15 @@ public class ClockDriver : AudioDriver
         public override string Device => DeviceName;
         public override AudioFormat Format { get; }
         public override int BufferSize { get; }
+        public override IReadOnlyList<string> MidiErrors => midi.Errors;
 
         public override Task Close()
         {
             stopping = true;
             thread.Join();
+
+            midi.Dispose();
+
             return Task.CompletedTask;
         }
 
@@ -85,7 +103,10 @@ public class ClockDriver : AudioDriver
                     skipped = ahead - sample;
                     sample = ahead;
                 }
-                var buffers = new AudioBuffers(default, default, frames, skipped);
+
+                midi.Fill(midiBuffer, frames, rate);
+
+                var buffers = new AudioBuffers(default, default, frames, skipped, midi: midiBuffer.Events);
                 client.Process(in buffers);
                 sample += frames;
             }

@@ -24,7 +24,11 @@ public record AudioState(
     IReadOnlyList<PortConnection>? Connections,
     bool Running,
     bool Fallback,
-    string? Error);
+    string? Error)
+{
+    /// <summary>The open stream's MIDI inputs that weren't opened, and why (not there, or in use by another program).</summary>
+    public IReadOnlyList<string> MidiErrors { get; init; } = Array.Empty<string>();
+}
 
 public enum AudioLogLevel
 {
@@ -228,6 +232,9 @@ public class AudioEngine : IDisposable
         }
         stream.Failed += OnFailed;
         stream.Changed += OnChanged;
+
+        foreach (string midiError in stream.MidiErrors)
+            Write(AudioLogLevel.Warning, midiError);
     }
 
     private async Task CloseStreamLocked()
@@ -298,7 +305,7 @@ public class AudioEngine : IDisposable
             AudioConfig c = config;
             return s != null
                 ? new AudioState(true, s.Driver, s.Device, s.Format, s.BufferSize, s.InputLatency, s.OutputLatency,
-                    s.Connections(), client != null, s.Driver != c.Driver, error)
+                    s.Connections(), client != null, s.Driver != c.Driver, error) { MidiErrors = s.MidiErrors }
                 : new AudioState(false, c.Driver, c.Device, null, 0, 0, 0, null, client != null, false, error);
         }
     }

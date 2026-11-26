@@ -37,8 +37,11 @@ internal unsafe class StreamBuffers
     public nint[] InputPointers { get; }
     public nint[] OutputPointers { get; }
 
+    /// <summary>The next callback's MIDI, gathered by the driver before it runs the client.</summary>
+    public MidiBuffer Midi { get; } = new();
+
     public AudioBuffers Buffers(int frames, long skipped = 0, int xruns = 0) =>
-        new(InputPointers, OutputPointers, frames, skipped, xruns);
+        new(InputPointers, OutputPointers, frames, skipped, xruns, Midi.Events);
 
     /// <summary>The address of a span over native memory (or a pinned array).</summary>
     public static nint Address(Span<float> span) => (nint)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));

@@ -32,7 +32,7 @@ public class AsioDriver : AudioDriver, IDisposable
     public override Task<AudioDeviceInfo> Info(string device) => worker.Run(() =>
     {
         if (open != null)
-            return SameName(open.Device, device) ? open.Info
+            return SameName(open.Device, device) ? open.Info with { MidiInputs = SystemMidi.Inputs() }
                 : throw new AudioException(AudioErrorKind.Busy, $"The ASIO device '{open.Device}' is open; close it to look at another.");
         using AsioDevice d = OpenDevice(device);
         return InfoOf(d, device);
@@ -117,7 +117,10 @@ public class AsioDriver : AudioDriver, IDisposable
             BufferSizes(caps.BufferMinSize, caps.BufferMaxSize, caps.BufferPreferredSize, caps.BufferGranularity),
             current,
             caps.BufferPreferredSize,
-            ControlPanel: true);
+            ControlPanel: true)
+        {
+            MidiInputs = SystemMidi.Inputs(),
+        };
     }
 
     private static bool Supports(AsioDevice device, int rate)
@@ -173,6 +176,7 @@ public class AsioDriver : AudioDriver, IDisposable
         private readonly AsioDevice device;
         private readonly IAudioClient client;
         private readonly string[] inputNames, outputNames;
+        private readonly TimedMidiInputs midi;
         private volatile StreamBuffers? buffers;
         private volatile AudioFormat format;
         private long budget;   // Stopwatch ticks a callback may take before it counts as an overrun.
@@ -214,8 +218,21 @@ public class AsioDriver : AudioDriver, IDisposable
                 if (!closing && device.State != AsioDeviceState.Running)
                     OnFailed(e.Exception != null ? $"The ASIO driver stopped: {e.Exception.Message}" : "The ASIO driver stopped.");
             });
-            format = Prepare();
-            device.Start();
+
+            midi = new TimedMidiInputs(config);
+
+            try
+            {
+                format = Prepare();
+
+                device.Start();
+            }
+            catch
+            {
+                midi.Dispose();
+
+                throw;
+            }
         }
 
         public AudioDeviceInfo Info { get; }
@@ -225,10 +242,11 @@ public class AsioDriver : AudioDriver, IDisposable
         public override int BufferSize => format.MaxFrames;
         public override int InputLatency => device.InputLatencySamples;
         public override int OutputLatency => device.OutputLatencySamples;
+        public override IReadOnlyList<string> MidiErrors => midi.Errors;
 
         private AudioFormat Prepare()
         {
-            var f = new AudioFormat(device.CurrentSampleRate, device.FramesPerBuffer, inputNames, outputNames);
+            var f = new AudioFormat(device.CurrentSampleRate, device.FramesPerBuffer, inputNames, outputNames) { MidiInputs = midi.Names };
             buffers = new StreamBuffers(f);
             budget = (long)(Stopwatch.Frequency * f.MaxFrames / f.SampleRate);
             format = f;
@@ -258,12 +276,16 @@ public class AsioDriver : AudioDriver, IDisposable
             if (closing)
                 return;
             closing = true;
+
             if (broken)
             {
+                midi.Dispose();
+
                 owner.abandoned.Add(device);
                 owner.open = null;
                 return;
             }
+
             try
             {
                 if (device.State == AsioDeviceState.Running)
@@ -272,6 +294,9 @@ public class AsioDriver : AudioDriver, IDisposable
             finally
             {
                 device.Dispose();
+
+                midi.Dispose();
+
                 owner.open = null;
             }
         });
@@ -286,6 +311,9 @@ public class AsioDriver : AudioDriver, IDisposable
                 return;   // Not the buffers Prepare made for this configuration: NAudio leaves the outputs silent.
             for (int i = 0; i < b.Inputs.Length; i++)
                 device.GetInput(i).CopyTo(b.Inputs[i]);
+
+            midi.Fill(b.Midi, frames, format.SampleRate);
+
             long began = Stopwatch.GetTimestamp();
             try
             {
