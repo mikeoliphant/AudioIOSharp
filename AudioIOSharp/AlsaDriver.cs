@@ -140,53 +140,75 @@ public class AlsaDriver : AudioDriver
         return device;
     }
 
-    // The hardware PCM devices (hw:CARD=...,DEV=...), from ALSA's device name hints.
+    // The hardware PCM devices (hw:CARD=...,DEV=...): every card's PCM devices with capture or playback, from the
+    // cards themselves (as aplay -l lists them), not from ALSA's configuration, whose name hints can leave them out.
     private static List<string> HardwareDevices()
     {
         var devices = new List<string>();
-
-        if (AlsaNative.DeviceNameHint(-1, "pcm", out nint hints) < 0)
-            return devices;
+        nint cardInfo = 0, pcmInfo = 0;
 
         try
         {
-            for (nint entry = hints; Marshal.ReadIntPtr(entry) != 0; entry += nint.Size)
-            {
-                nint hint = Marshal.ReadIntPtr(entry);
-                string? name = Hint(hint, "NAME");
+            AlsaNative.CtlCardInfoMalloc(out cardInfo);
+            AlsaNative.PcmInfoMalloc(out pcmInfo);
 
-                if ((name == null) || !name.StartsWith("hw:", StringComparison.Ordinal))
+            int card = -1;
+
+            while ((AlsaNative.CardNext(ref card) >= 0) && (card >= 0))
+            {
+                if (AlsaNative.CtlOpen(out nint ctl, $"hw:{card}", 0) < 0)
                     continue;
 
-                string display = DisplayName(Hint(hint, "DESC"), name);
+                try
+                {
+                    if (AlsaNative.CtlCardInfo(ctl, cardInfo) < 0)
+                        continue;
 
-                if (!devices.Contains(display))
-                    devices.Add(display);
+                    string id = Marshal.PtrToStringUTF8(AlsaNative.CtlCardInfoGetId(cardInfo)) ?? card.ToString();
+                    string cardName = Marshal.PtrToStringUTF8(AlsaNative.CtlCardInfoGetName(cardInfo)) ?? id;
+
+                    int device = -1;
+
+                    while ((AlsaNative.CtlPcmNextDevice(ctl, ref device) >= 0) && (device >= 0))
+                    {
+                        string? pcmName = PcmName(ctl, pcmInfo, device, AlsaNative.StreamPlayback) ??
+                            PcmName(ctl, pcmInfo, device, AlsaNative.StreamCapture);
+
+                        if (pcmName == null)
+                            continue;
+
+                        devices.Add(DisplayName($"{cardName}, {pcmName}", $"hw:CARD={id},DEV={device}"));
+                    }
+                }
+                finally
+                {
+                    AlsaNative.CtlClose(ctl);
+                }
             }
         }
         finally
         {
-            AlsaNative.DeviceNameFreeHint(hints);
+            if (cardInfo != 0)
+                AlsaNative.CtlCardInfoFree(cardInfo);
+
+            if (pcmInfo != 0)
+                AlsaNative.PcmInfoFree(pcmInfo);
         }
 
         return devices;
     }
 
-    private static string? Hint(nint hint, string id)
+    // A PCM device's name in one direction, or null if it has no such direction
+    private static string? PcmName(nint ctl, nint info, int device, int stream)
     {
-        nint value = AlsaNative.DeviceNameGetHint(hint, id);
+        AlsaNative.PcmInfoSetDevice(info, (uint)device);
+        AlsaNative.PcmInfoSetSubdevice(info, 0);
+        AlsaNative.PcmInfoSetStream(info, stream);
 
-        if (value == 0)
+        if (AlsaNative.CtlPcmInfo(ctl, info) < 0)
             return null;
 
-        try
-        {
-            return Marshal.PtrToStringUTF8(value);
-        }
-        finally
-        {
-            AlsaNative.Free(value);
-        }
+        return Marshal.PtrToStringUTF8(AlsaNative.PcmInfoGetName(info)) ?? "";
     }
 
     /// <summary>What one direction of a device offers.</summary>

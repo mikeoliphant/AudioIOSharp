@@ -54,19 +54,55 @@ internal static unsafe partial class AlsaNative
         }
     }
 
-    // ---- Device names -----------------------------------------------------------------------------------------------
+    // ---- Cards and their PCM devices (the control interface) ------------------------------------------------------
 
-    [LibraryImport(Library, EntryPoint = "snd_device_name_hint", StringMarshalling = StringMarshalling.Utf8)]
-    public static partial int DeviceNameHint(int card, string iface, out nint hints);
+    [LibraryImport(Library, EntryPoint = "snd_card_next")]
+    public static partial int CardNext(ref int card);
 
-    [LibraryImport(Library, EntryPoint = "snd_device_name_get_hint", StringMarshalling = StringMarshalling.Utf8)]
-    public static partial nint DeviceNameGetHint(nint hint, string id);
+    [LibraryImport(Library, EntryPoint = "snd_ctl_open", StringMarshalling = StringMarshalling.Utf8)]
+    public static partial int CtlOpen(out nint ctl, string name, int mode);
 
-    [LibraryImport(Library, EntryPoint = "snd_device_name_free_hint")]
-    public static partial int DeviceNameFreeHint(nint hints);
+    [LibraryImport(Library, EntryPoint = "snd_ctl_close")]
+    public static partial int CtlClose(nint ctl);
 
-    [LibraryImport("libc", EntryPoint = "free")]
-    public static partial void Free(nint pointer);
+    [LibraryImport(Library, EntryPoint = "snd_ctl_card_info_malloc")]
+    public static partial int CtlCardInfoMalloc(out nint info);
+
+    [LibraryImport(Library, EntryPoint = "snd_ctl_card_info_free")]
+    public static partial void CtlCardInfoFree(nint info);
+
+    [LibraryImport(Library, EntryPoint = "snd_ctl_card_info")]
+    public static partial int CtlCardInfo(nint ctl, nint info);
+
+    [LibraryImport(Library, EntryPoint = "snd_ctl_card_info_get_id")]
+    public static partial nint CtlCardInfoGetId(nint info);
+
+    [LibraryImport(Library, EntryPoint = "snd_ctl_card_info_get_name")]
+    public static partial nint CtlCardInfoGetName(nint info);
+
+    [LibraryImport(Library, EntryPoint = "snd_ctl_pcm_next_device")]
+    public static partial int CtlPcmNextDevice(nint ctl, ref int device);
+
+    [LibraryImport(Library, EntryPoint = "snd_ctl_pcm_info")]
+    public static partial int CtlPcmInfo(nint ctl, nint info);
+
+    [LibraryImport(Library, EntryPoint = "snd_pcm_info_malloc")]
+    public static partial int PcmInfoMalloc(out nint info);
+
+    [LibraryImport(Library, EntryPoint = "snd_pcm_info_free")]
+    public static partial void PcmInfoFree(nint info);
+
+    [LibraryImport(Library, EntryPoint = "snd_pcm_info_set_device")]
+    public static partial void PcmInfoSetDevice(nint info, uint device);
+
+    [LibraryImport(Library, EntryPoint = "snd_pcm_info_set_subdevice")]
+    public static partial void PcmInfoSetSubdevice(nint info, uint subdevice);
+
+    [LibraryImport(Library, EntryPoint = "snd_pcm_info_set_stream")]
+    public static partial void PcmInfoSetStream(nint info, int stream);
+
+    [LibraryImport(Library, EntryPoint = "snd_pcm_info_get_name")]
+    public static partial nint PcmInfoGetName(nint info);
 
     [LibraryImport(Library, EntryPoint = "snd_strerror")]
     public static partial nint StrError(int error);
